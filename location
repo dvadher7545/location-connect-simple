@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simple Live Location</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body{background:#0f172a;color:#0b1220}
+    .card{background:#ffffff; border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,.12)}
+    #map,#adminMap{height:420px;border-radius:12px;overflow:hidden}
+    code{background:#f1f5f9;padding:2px 6px;border-radius:6px}
+  </style>
+</head>
+<body class="min-h-screen py-8">
+  <div class="max-w-4xl mx-auto px-4">
+    <h1 class="text-3xl md:text-4xl font-bold text-white text-center mb-6">📍 Simple Live Location</h1>
+
+    <!-- Home -->
+    <div id="home" class="card p-6 md:p-8 mb-6">
+      <h2 class="text-xl font-semibold mb-2">Generate a random link</h2>
+      <p class="text-slate-600 mb-4">
+        Click the button to get two links: <strong>Share</strong> (send to user) and <strong>Admin</strong> (open yourself).
+      </p>
+      <div class="flex flex-wrap gap-2 mb-4">
+        <button id="genBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Generate Link</button>
+        <button id="howBtn" class="bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded">Setup Guide</button>
+      </div>
+      <div id="linksBox" class="hidden space-y-3">
+        <div>
+          <div class="text-sm text-slate-600">User (Share) link</div>
+          <div class="flex gap-2">
+            <input id="shareLink" class="w-full border rounded px-3 py-2" readonly>
+            <button data-copy="#shareLink" class="copyBtn bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded">Copy</button>
+          </div>
+        </div>
+        <div>
+          <div class="text-sm text-slate-600">Admin (View) link</div>
+          <div class="flex gap-2">
+            <input id="adminLink" class="w-full border rounded px-3 py-2" readonly>
+            <button data-copy="#adminLink" class="copyBtn bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded">Copy</button>
+          </div>
+        </div>
+        <p class="text-xs text-slate-500">Both links use the <strong>same room</strong>. Open Admin yourself; send Share to the user. They must tap <em>Allow</em> in Chrome.</p>
+      </div>
+    </div>
+
+    <!-- Share mode (user) -->
+    <div id="shareMode" class="card p-6 md:p-8 mb-6 hidden">
+      <h2 class="text-xl font-semibold mb-2">Share My Live Location</h2>
+      <p class="text-slate-600 mb-4">Open in Chrome. Tap <strong>Start</strong> and allow location. Keep this page open to send updates.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 text-sm text-slate-600">
+        <div>Room: <code id="roomShare"></code></div>
+        <div>Status: <span id="statusShare" class="text-slate-500">idle</span></div>
+      </div>
+      <div id="map" class="mb-4"></div>
+      <div class="flex gap-2">
+        <button id="startBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Start</button>
+        <button id="stopBtn" class="bg-slate-600 hover:bg-slate-700 text-white px-4 py-2 rounded" disabled>Stop</button>
+      </div>
+      <p class="text-xs text-slate-500 mt-3">We only send coordinates and accuracy to the room while this page is open.</p>
+    </div>
+
+    <!-- Admin mode -->
+    <div id="adminMode" class="card p-6 md:p-8 hidden">
+      <div class="flex flex-wrap items-center gap-3 mb-3">
+        <h2 class="text-xl font-semibold">Admin Map</h2>
+        <span class="text-sm text-slate-600">Room: <code id="roomAdmin"></code></span>
+        <select id="basemap" class="ml-auto border rounded px-2 py-1 text-sm">
+          <option value="streets">Streets (OSM)</option>
+          <option value="satellite">Satellite (Esri)</option>
+        </select>
+      </div>
+      <div id="adminMap" class="mb-4"></div>
+      <div class="text-sm text-slate-600">Live users: <span id="liveCount">0</span></div>
+    </div>
+
+    <!-- How to setup -->
+    <div id="how" class="card p-6 md:p-8 hidden">
+      <h3 class="text-lg font-semibold mb-2">One-time setup (very short)</h3>
+      <ol class="list-decimal ml-5 space-y-2 text-slate-700 text-sm">
+        <li>Go to <a class="text-blue-600 underline" href="https://console.firebase.google.com/" target="_blank">Firebase Console</a> → create a project.</li>
+        <li>Build → <strong>Firestore Database</strong> → Create (production mode).</li>
+        <li>Project Settings → General → Your apps → Web app (</>) → copy the <strong>config</strong>.</li>
+        <li>Paste your config into the <code>firebaseConfig</code> object in this file (already done below for you).</li>
+        <li>Optional (testing rules): Firestore Rules →
+          <pre class="bg-slate-900 text-slate-100 p-3 rounded text-xs overflow-auto">rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{room}/users/{uid} {
+      allow read, write: if true; // demo only; tighten later
+    }
+  }
+}</pre>
+        </li>
+      </ol>
+      <p class="text-xs text-slate-500">Host this single file on GitHub Pages (or open locally). For remote users, use HTTPS (GitHub Pages is HTTPS).</p>
+    </div>
+  </div>
+
+  <!-- libs -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Firebase compat SDKs (simple for single-file HTML) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+  <script>
+    // ====== CONFIG: your Firebase web config (already filled in) ======
+    const firebaseConfig = {
+      apiKey: "AIzaSyDetNd_lMhcJdrOWtJPueKICg7qB56ubz0",
+      authDomain: "simple-location-8327b.firebaseapp.com",
+      projectId: "simple-location-8327b",
+      storageBucket: "simple-location-8327b.firebasestorage.app",
+      messagingSenderId: "528997748735",
+      appId: "1:528997748735:web:fbc369126ec031d3bb61ca",
+      measurementId: "G-Z4ZXW60VGX"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // ====== helpers ======
+    const $ = (q)=>document.querySelector(q);
+    const byId = (id)=>document.getElementById(id);
+    const params = new URLSearchParams(location.search);
+    const mode = params.get('mode'); // 'share' or 'admin'
+    const room = params.get('room');
+
+    const redIcon = L.icon({
+      iconUrl:'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+      shadowUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+      iconSize:[25,41], iconAnchor:[12,41], popupAnchor:[1,-34], shadowSize:[41,41]
+    });
+
+    function show(el, yes){ el.classList.toggle('hidden', !yes); }
+    function randomRoom(){ return Math.random().toString(36).slice(2,8); }
+    function makeLinks(r){
+      const base = location.origin + location.pathname;
+      const share = `${base}?mode=share&room=${encodeURIComponent(r)}`;
+      const admin = `${base}?mode=admin&room=${encodeURIComponent(r)}`;
+      byId('shareLink').value = share;
+      byId('adminLink').value = admin;
+      show(byId('linksBox'), true);
+    }
+
+    // Home actions
+    byId('genBtn').addEventListener('click', ()=> makeLinks(randomRoom()));
+    byId('howBtn').addEventListener('click', ()=> show(byId('how'), !byId('how').classList.contains('hidden')));
+    document.addEventListener('click', (e)=>{
+      const btn = e.target.closest('.copyBtn');
+      if (!btn) return;
+      const sel = btn.getAttribute('data-copy');
+      const inp = document.querySelector(sel);
+      inp.select(); inp.setSelectionRange(0, 99999);
+      navigator.clipboard.writeText(inp.value);
+      btn.textContent = 'Copied!'; setTimeout(()=> btn.textContent='Copy', 1200);
+    });
+
+    // ====== SHARE MODE (user) ======
+    let shareMap, shareMarker, watchId=null;
+
+    async function startShare(){
+      const statusEl = byId('statusShare');
+      if (!('geolocation' in navigator)) { statusEl.textContent='no geolocation'; return; }
+      statusEl.textContent='starting…';
+
+      if (!shareMap){
+        shareMap = L.map('map', { center:[20,0], zoom: 2 });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'© OpenStreetMap' }).addTo(shareMap);
+      }
+
+      // per-browser pseudo user id
+      let uid = localStorage.getItem('sl_uid');
+      if (!uid){ uid = Math.random().toString(36).slice(2,10); localStorage.setItem('sl_uid', uid); }
+
+      function send(pos){
+        const { latitude:lat, longitude:lng, accuracy:acc } = pos.coords;
+        const ref = db.collection('rooms').doc(room).collection('users').doc(uid);
+        ref.set({ lat, lng, acc, ts: firebase.firestore.FieldValue.serverTimestamp() }, { merge:true });
+        // Show on the user's own map
+        if (!shareMarker) shareMarker = L.marker([lat,lng],{icon:redIcon}).addTo(shareMap);
+        shareMarker.setLatLng([lat,lng]).bindPopup(`You<br>Lat ${lat.toFixed(6)}, Lng ${lng.toFixed(6)}<br>±${Math.round(acc)}m`).openPopup();
+        shareMap.setView([lat,lng], Math.max(shareMap.getZoom(), 15), {animate:true});
+        statusEl.textContent='sharing…';
+      }
+
+      function err(e){ statusEl.textContent='permission denied or error'; console.error(e); }
+
+      watchId = navigator.geolocation.watchPosition(send, err, { enableHighAccuracy:true, timeout:15000, maximumAge:0 });
+      byId('startBtn').disabled = true; byId('stopBtn').disabled = false;
+    }
+
+    function stopShare(){
+      if (watchId!==null){ navigator.geolocation.clearWatch(watchId); watchId=null; }
+      byId('statusShare').textContent='stopped';
+      byId('startBtn').disabled = false; byId('stopBtn').disabled = true;
+    }
+
+    // ====== ADMIN MODE ======
+    let adminMap, markers = new Map();
+
+    function initAdmin(){
+      adminMap = L.map('adminMap', { center:[20,0], zoom:2 });
+      const streets = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'© OpenStreetMap' });
+      const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{ attribution:'Tiles © Esri/Maxar' });
+      streets.addTo(adminMap);
+      byId('basemap').addEventListener('change', (e)=>{
+        if (e.target.value==='satellite'){ adminMap.removeLayer(streets); satellite.addTo(adminMap); }
+        else { adminMap.removeLayer(satellite); streets.addTo(adminMap); }
+      });
+
+      // Live listener
+      db.collection('rooms').doc(room).collection('users').onSnapshot(snap=>{
+        const bounds=[]; let count=0;
+        snap.forEach(doc=>{
+          const d = doc.data(); if (typeof d.lat!=="number"||typeof d.lng!=="number") return;
+          count++; bounds.push([d.lat,d.lng]);
+          let m = markers.get(doc.id);
+          if (!m){ m = L.marker([d.lat,d.lng],{icon:redIcon}).addTo(adminMap); markers.set(doc.id, m); }
+          m.setLatLng([d.lat,d.lng]).bindPopup(`User: ${doc.id}<br>±${Math.round(d.acc||0)} m`);
+        });
+        byId('liveCount').textContent = count;
+        if (bounds.length) adminMap.fitBounds(bounds, { padding:[30,30] });
+      });
+    }
+
+    // ====== boot (route) ======
+    (function boot(){
+      if (mode==='share' && room){
+        show(byId('home'), false); show(byId('shareMode'), true); show(byId('how'), false); show(byId('adminMode'), false);
+        byId('roomShare').textContent = room;
+        byId('startBtn').addEventListener('click', startShare);
+        byId('stopBtn').addEventListener('click', stopShare);
+      } else if (mode==='admin' && room){
+        show(byId('home'), false); show(byId('adminMode'), true); show(byId('how'), false); show(byId('shareMode'), false);
+        byId('roomAdmin').textContent = room; initAdmin();
+      } else {
+        show(byId('home'), true); show(byId('how'), false); show(byId('shareMode'), false); show(byId('adminMode'), false);
+      }
+    })();
+  </script>
+</body>
+</html>
